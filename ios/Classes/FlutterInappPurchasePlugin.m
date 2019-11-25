@@ -13,6 +13,7 @@
 @property (atomic, retain) NSMutableArray<SKProduct*>* appStoreInitiatedProducts;
 @property (atomic, retain) NSMutableSet<NSString*>* purchases;
 @property (nonatomic, retain) FlutterMethodChannel* channel;
+@property (nonatomic, retain) SKProductsRequest* productRequest;
 
 @end
 
@@ -47,11 +48,13 @@
 }
 
 - (void)dealloc {
+    NSLog(@"dealloc");
     [[SKPaymentQueue defaultQueue] removeTransactionObserver:self];
     [self.channel setMethodCallHandler:nil];
 }
 
 - (void)handleMethodCall:(FlutterMethodCall*)call result:(FlutterResult)result {
+    NSLog(@"call method --- %@", call.method);
     if ([@"getPlatformVersion" isEqualToString:call.method]) {
         result([@"iOS " stringByAppendingString:[[UIDevice currentDevice] systemVersion]]);
     } else if ([@"canMakePayments" isEqualToString:call.method]) {
@@ -185,7 +188,7 @@
             else {
                 NSArray<SKPaymentTransaction *> *transactions = [[SKPaymentQueue defaultQueue] transactions];
                 NSMutableArray *output = [NSMutableArray array];
-                
+
                 for (SKPaymentTransaction *item in transactions) {
                     NSMutableDictionary *purchase = [NSMutableDictionary dictionaryWithObjectsAndKeys:
                                                      @(item.transactionDate.timeIntervalSince1970 * 1000), @"transactionDate",
@@ -196,7 +199,7 @@
                                                      ];
                     [output addObject:purchase];
                 }
-                
+
                 result(output);
             }
         }];
@@ -234,17 +237,30 @@
 
 - (void)canMakePayments:(FlutterResult)result {
     BOOL canMakePayments = [SKPaymentQueue canMakePayments];
+    [[SKPaymentQueue defaultQueue] addTransactionObserver:self];
     NSString* str = canMakePayments ? @"true" : @"false";
     result(str);
 }
 
-- (void)fetchProducts:(NSArray<NSString*>*)identifiers result:(FlutterResult)result {
-    if (identifiers != nil && result != nil) {
-        SKProductsRequest* request = [[SKProductsRequest alloc] initWithProductIdentifiers:[NSSet setWithArray:identifiers]];
-        [request setDelegate:self];
-        [fetchProducts setObject:result forKey:[NSValue valueWithNonretainedObject:request]];
+- (void)setProductRequest:(SKProductsRequest *)productRequest
+{
+  if (productRequest != _productRequest) {
+    if (_productRequest) {
+      _productRequest.delegate = nil;
+    }
+    _productRequest = productRequest;
+  }
+}
 
-        [request start];
+- (void)fetchProducts:(NSArray<NSString*>*)identifiers result:(FlutterResult)result {
+    NSLog(@"fetch products");
+    if (identifiers != nil && result != nil) {
+        self.productRequest = [[SKProductsRequest alloc] initWithProductIdentifiers:[NSSet setWithArray:identifiers]];
+        self.productRequest.delegate = self;
+        [fetchProducts setObject:result forKey:[NSValue valueWithNonretainedObject:self.productRequest]];
+
+        NSLog(@"start request -- %@", products);
+        [self.productRequest start];
     } else if (result != nil){
         result([FlutterError
                 errorWithCode:@"fetchProducts error"
@@ -255,25 +271,31 @@
 
 #pragma mark ===== StoreKit Delegate
 
+
 - (void)request:(SKRequest *)request didFailWithError:(NSError *)error {
+    NSLog(@"request did fail");
     NSValue* key = [NSValue valueWithNonretainedObject:request];
     FlutterResult result = [fetchProducts objectForKey:key];
     if (result != nil) {
         [fetchProducts removeObjectForKey:key];
+        request = nil;
         result([FlutterError
                 errorWithCode:[self standardErrorCode:(int)error.code]
                 message:[self englishErrorCodeDescription:(int)error.code]
                 details:nil]);
     }
+
 }
 
 - (void)productsRequest:(nonnull SKProductsRequest *)request didReceiveResponse:(nonnull SKProductsResponse *)response {
+    NSLog(@"product request response");
     NSValue* key = [NSValue valueWithNonretainedObject:request];
     FlutterResult result = [fetchProducts objectForKey:key];
     if (result == nil) return;
     [fetchProducts removeObjectForKey:key];
 
     for (SKProduct* prod in response.products) {
+        NSLog(@"got product -- %@", prod);
         [self addProduct:prod];
     }
     NSMutableArray* items = [NSMutableArray array];
