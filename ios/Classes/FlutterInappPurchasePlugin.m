@@ -660,6 +660,14 @@
     flutterResult = nil;
 }
 
+-(void) paymentQueue:(SKPaymentQueue *)queue restoreCompletedTransactionsFailedWithError:(NSError *)error{
+    if (error && flutterResult != nil){
+        flutterResult([FlutterError errorWithCode:error.description message:error.localizedDescription details:NULL]);
+    }
+    
+    flutterResult = nil;
+}
+
 - (void)getAppStoreInitiatedProducts:(FlutterResult)result {
     NSMutableArray<NSDictionary*>* initiatedProducts = [[NSMutableArray alloc] init];
     for (SKProduct* p in appStoreInitiatedProducts) {
